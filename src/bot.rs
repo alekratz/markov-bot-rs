@@ -9,6 +9,7 @@ type UserSettingsMap = HashMap<String, HashMap<String, UserSettings>>;
 type ChainMap = HashMap<String, HashMap<String, Chain<String>>>;
 
 const DEFAULT_CHANCE: f64 = 0.01;
+const DEFAULT_ORDER: usize = 1;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct UserSettings {
@@ -16,10 +17,17 @@ struct UserSettings {
     pub chance: f64,
 }
 
+impl Default for UserSettings {
+    fn default() -> Self {
+        UserSettings { ignore: false, chance: DEFAULT_CHANCE }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BlobFile {
     chains: ChainMap,
     user_settings: UserSettingsMap,
+    order: usize,
 }
 
 pub struct IrcBot {
@@ -27,6 +35,7 @@ pub struct IrcBot {
     allchains: HashMap<String, Chain<String>>,
     user_settings: UserSettingsMap,
     ignore: Vec<String>,
+    order: usize,
     server: IrcServer,
 }
 
@@ -39,10 +48,14 @@ impl IrcBot {
             ignore: options.get("ignore")
                 .map(|x| x.split(',').map(str::to_string).collect())
                 .unwrap_or(vec![]),
+            order: options.get("order")
+                .map(|x| x.parse::<usize>().unwrap())
+                .unwrap_or(DEFAULT_ORDER),
             server,
         }
     }
 
+    /// Constructs this IrcBot with a pre-saved chain and user settings.
     pub fn from_blob_file(server: IrcServer, options: HashMap<String, String>, blob: BlobFile) -> Self {
         IrcBot {
             chains: blob.chains,
@@ -51,10 +64,12 @@ impl IrcBot {
             ignore: options.get("ignore")
                 .map(|x| x.split(',').map(str::to_string).collect())
                 .unwrap_or(vec![]),
+            order: blob.order,
             server,
         }
     }
 
+    /// Handles an incoming IRC message.
     pub fn handle(&mut self, msg: Message) {
         match msg.command {
             Command::PRIVMSG(ref channel, ref msg_str) => if let Some(prefix) = msg.prefix {
@@ -64,6 +79,7 @@ impl IrcBot {
         }
     }
 
+    /// Handles a channel message.
     fn channel_message(&mut self, sender: &str, channel: &str, msg: &str) {
         // ignore messages from ourself
         if sender == self.server.current_nickname() {
@@ -85,7 +101,7 @@ impl IrcBot {
             // Train the allchain
             if !self.allchains.contains_key(channel) {
                 debug!("building allchain for {}", channel);
-                let mut allchain = Chain::new(1);
+                let mut allchain = Chain::new(self.order);
                 for (_, ref chain) in self.chains.get(channel).unwrap() {
                     allchain.merge(chain);
                 }
@@ -104,11 +120,24 @@ impl IrcBot {
         let channel = self.chains.get_mut(channel).unwrap();
 
         if !channel.contains_key(user) {
-            channel.insert(user.to_string(), Chain::new(1));
+            channel.insert(user.to_string(), Chain::new(self.order));
         }
         channel.get_mut(user).unwrap()
     }
 
+    fn user_settings_mut(&mut self, channel: &str, user: &str) -> &mut UserSettings {
+        if !self.user_settings.contains_key(channel) {
+            self.user_settings.insert(channel.to_string(), HashMap::new());
+        }
+        let channel = self.user_settings.get_mut(channel).unwrap();
+
+        if !channel.contains_key(user) {
+            channel.insert(user.to_string(), UserSettings::default());
+        }
+        channel.get_mut(user).unwrap()
+    }
+
+    /// Gets whether a user on a given channel is ignored
     fn is_ignored(&self, channel: &str, user: &str) -> bool {
         self.ignore.iter().map(String::as_str).find(|&f| f == user).is_some()
             || self.user_settings.get(channel)
@@ -124,7 +153,7 @@ impl IrcBot {
             "force" => {
                 let chain = self.chains
                     .entry(channel.to_string()).or_insert(HashMap::new())
-                    .entry(sender.to_string()).or_insert(Chain::new(1));
+                    .entry(sender.to_string()).or_insert(Chain::new(self.order));
                 if !chain.is_empty() {
                     let gen = chain.generate_sentence();
                     let message = format!("{}: {}", sender, gen);
@@ -143,19 +172,44 @@ impl IrcBot {
                 }
             },
             "ignore" => if !self.is_ignored(channel, sender) {
-                self.user_settings
-                    .entry(channel.to_string()).or_insert(HashMap::new())
-                    .entry(sender.to_string()).or_insert(UserSettings { ignore: true, chance: DEFAULT_CHANCE });
-                self.ignore.push(sender.to_string());
+                {
+                    let user_settings = self.user_settings_mut(channel, sender);
+                    user_settings.ignore = false;
+                }
                 if let Err(e) = self.server.send_privmsg(sender, "You are now being ignored. Use !markov listen to undo this command") {
                     error!("{}", e);
                 }
             },
             "listen" => if self.is_ignored(channel, sender) {
-                self.user_settings
-                    .entry(channel.to_string()).or_insert(HashMap::new())
-                    .entry(sender.to_string()).or_insert(UserSettings { ignore: false, chance: DEFAULT_CHANCE });
+                {
+                    let user_settings = self.user_settings_mut(channel, sender);
+                    user_settings.ignore = false;
+                }
                 if let Err(e) = self.server.send_privmsg(sender, "Markov is now listening to what you say. Use !markov ignore to undo this command.") {
+                    error!("{}", e);
+                }
+            },
+            "chance" => {
+                let response = if parts.len() <= 2 {
+                    let user_settings = self.user_settings_mut(channel, sender);
+                    format!("Your markov chance is {}", user_settings.chance)
+                }
+                else {
+                    if let Ok(chance) = parts[2].parse::<f64>() {
+                        if chance <= DEFAULT_CHANCE && chance >= 0.0 {
+                            let user_settings = self.user_settings_mut(channel, sender);
+                            user_settings.chance = chance;
+                            format!("Your chance for getting a random message from markov is {}", chance)
+                        }
+                        else {
+                            format!("The chance mut be set to a valid number between 0.0 and {}", DEFAULT_CHANCE)
+                        }
+                    }
+                    else {
+                        format!("Invalid number format")
+                    }
+                };
+                if let Err(e) = self.server.send_privmsg(sender, &response) {
                     error!("{}", e);
                 }
             },
@@ -169,6 +223,7 @@ impl IrcBot {
         let save_data = BlobFile {
             chains: self.chains.clone(),
             user_settings: self.user_settings.clone(),
+            order: self.order,
         };
         let cbor_out = cbor::to_vec(&save_data).unwrap();
         let mut file = OpenOptions::new()
