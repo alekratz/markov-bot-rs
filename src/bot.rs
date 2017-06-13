@@ -17,12 +17,6 @@ struct UserSettings {
     pub chance: f64,
 }
 
-impl Default for UserSettings {
-    fn default() -> Self {
-        UserSettings { ignore: false, chance: DEFAULT_CHANCE }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BlobFile {
     chains: ChainMap,
@@ -36,6 +30,7 @@ pub struct IrcBot {
     user_settings: UserSettingsMap,
     ignore: Vec<String>,
     order: usize,
+    chance: f64,
     server: IrcServer,
 }
 
@@ -51,6 +46,9 @@ impl IrcBot {
             order: options.get("order")
                 .map(|x| x.parse::<usize>().unwrap())
                 .unwrap_or(DEFAULT_ORDER),
+            chance: options.get("chance")
+                .map(|x| x.parse::<f64>().unwrap())
+                .unwrap_or(DEFAULT_CHANCE),
             server,
         }
     }
@@ -64,6 +62,9 @@ impl IrcBot {
             ignore: options.get("ignore")
                 .map(|x| x.split(',').map(str::to_string).collect())
                 .unwrap_or(vec![]),
+            chance: options.get("chance")
+                .map(|x| x.parse::<f64>().unwrap())
+                .unwrap_or(DEFAULT_CHANCE),
             order: blob.order,
             server,
         }
@@ -99,18 +100,24 @@ impl IrcBot {
                 chain.train_string(msg);
             }
             // Train the allchain
-            if !self.allchains.contains_key(channel) {
-                debug!("building allchain for {}", channel);
-                let mut allchain = Chain::new(self.order);
-                for (_, ref chain) in self.chains.get(channel).unwrap() {
-                    allchain.merge(chain);
-                }
-                self.allchains.insert(channel.to_string(), allchain);
+            {
+                let allchain = self.allchain_mut(channel);
+                allchain.train_string(msg);
             }
-            let allchain = self.allchains.get_mut(channel).unwrap();
-            allchain.train_string(msg);
         }
 
+    }
+
+    fn allchain_mut(&mut self, channel: &str) -> &mut Chain<String> {
+        if !self.allchains.contains_key(channel) {
+            debug!("building allchain for {}", channel);
+            let mut allchain = Chain::new(self.order);
+            for (_, ref chain) in self.chains.get(channel).unwrap() {
+                allchain.merge(chain);
+            }
+            self.allchains.insert(channel.to_string(), allchain);
+        }
+        self.allchains.get_mut(channel).unwrap()
     }
 
     fn user_chain_mut(&mut self, channel: &str, user: &str) -> &mut Chain<String> {
@@ -132,7 +139,7 @@ impl IrcBot {
         let channel = self.user_settings.get_mut(channel).unwrap();
 
         if !channel.contains_key(user) {
-            channel.insert(user.to_string(), UserSettings::default());
+            channel.insert(user.to_string(), UserSettings { ignore: false, chance: self.chance });
         }
         channel.get_mut(user).unwrap()
     }
@@ -196,13 +203,13 @@ impl IrcBot {
                 }
                 else {
                     if let Ok(chance) = parts[2].parse::<f64>() {
-                        if chance <= DEFAULT_CHANCE && chance >= 0.0 {
+                        if chance <= self.chance && chance >= 0.0 {
                             let user_settings = self.user_settings_mut(channel, sender);
                             user_settings.chance = chance;
                             format!("Your chance for getting a random message from markov is {}", chance)
                         }
                         else {
-                            format!("The chance mut be set to a valid number between 0.0 and {}", DEFAULT_CHANCE)
+                            format!("The chance mut be set to a valid number between 0.0 and {}", self.chance )
                         }
                     }
                     else {
@@ -213,11 +220,27 @@ impl IrcBot {
                     error!("{}", e);
                 }
             },
+            "status" => {
+                let user_total = { Self::get_chain_total(self.user_chain_mut(channel, sender)) };
+                let all_total = { Self::get_chain_total(self.allchain_mut(channel)) };
+                let status = ((user_total as f64) / (all_total as f64)) * 100.0;
+                let message = format!("{}: You are worth {:.4}% of the channel", sender, status);
+                if let Err(e) = self.server.send_privmsg(channel, &message) {
+                    error!("{}", e);
+                }
+            },
             _ => { },
         }
     }
 
-    /// Saves a blob of the chains and user settings
+    fn get_chain_total(chain: &Chain<String>) -> u32 {
+        chain.chain()
+            .iter()
+            .map(|(_, link)| link.iter().fold(0, |a, (_, weight)| a + weight))
+            .fold(0, |a, b| a + b)
+    }
+
+    /// Saves a blob of the chains and user settings.
     pub fn save_blob(&mut self, path: &str) -> io::Result<()> {
         info!("saving chains");
         let save_data = BlobFile {
@@ -233,6 +256,7 @@ impl IrcBot {
         file.write_all(&cbor_out)
     }
 
+    /// Reads a blob of chains and user settings.
     pub fn read_blob(path: &str) -> io::Result<BlobFile> {
         debug!("reading from {}", path);
         let mut file = OpenOptions::new()
@@ -243,6 +267,11 @@ impl IrcBot {
 
         let read_data = cbor::from_slice::<BlobFile>(&cbor_in)
             .expect(&format!("invalid cbor data in {}", path));
+        for (_, ref c_chain) in read_data.chains.iter() {
+            for (_, ref u_chain) in c_chain.iter() {
+                assert_eq!(u_chain.order(), read_data.order);
+            }
+        }
         Ok(read_data)
     }
 }
