@@ -186,12 +186,15 @@ impl IrcBot {
                     }
                 }
             },
-            "all" => if let Some(chain) = self.allchains.get(channel) {
-                if !chain.is_empty() {
-                    let gen = chain.generate_sentence();
-                    let message = format!("{}: {}", sender, gen);
-                    if let Err(e) = self.server.send_privmsg(channel, &message) {
-                        error!("{}", e);
+            "all" => {
+                { self.allchain_mut(channel); } // this will initialize the allchain if necessary
+                if let Some(chain) = self.allchains.get(channel) {
+                    if !chain.is_empty() {
+                        let gen = chain.generate_sentence();
+                        let message = format!("{}: {}", sender, gen);
+                        if let Err(e) = self.server.send_privmsg(channel, &message) {
+                            error!("{}", e);
+                        }
                     }
                 }
             },
