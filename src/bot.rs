@@ -1,6 +1,7 @@
 use markov_chain::Chain;
 use irc::client::prelude::*;
 use cbor;
+use rand::{self, Rng};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{self, Write, Read};
@@ -94,18 +95,29 @@ impl IrcBot {
             self.handle_command(sender, channel, &msg_parts);
         }
         else if !self.is_ignored(channel, sender) {
-            // Train the user's chain
-            {
-                let chain = self.user_chain_mut(channel, sender);
-                chain.train_string(msg);
-            }
-            // Train the allchain
+            let chance = { self.user_settings_mut(channel, sender).chance }; 
+            // Train the allchain first
+            // if we train it second, it's possible it may not have been constructed yet, and we double-train it as a result
             {
                 let allchain = self.allchain_mut(channel);
                 allchain.train_string(msg);
             }
-        }
+            // Train the user's chain
+            {
+                let chain = self.user_chain_mut(channel, sender);
+                chain.train_string(msg); 
+            }
 
+            // Reply if we feel like it
+            let random = rand::thread_rng().next_f64();
+            if random < chance {
+                let generated = { self.user_chain_mut(channel, sender).generate_sentence() };
+                let message = format!("{}: {}", sender, generated);
+                if let Err(e) = self.server.send_privmsg(channel, &message) {
+                    error!("{}", e);
+                }
+            }
+        }
     }
 
     fn allchain_mut(&mut self, channel: &str) -> &mut Chain<String> {

@@ -8,6 +8,7 @@ dependencies = [
  "irc 0.11.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "markov-chain 0.1.1 (git+https://git.intercal.top/intercal/markov-chain-rs.git)",
+ "rand 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
