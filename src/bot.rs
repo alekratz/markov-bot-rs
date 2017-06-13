@@ -124,8 +124,13 @@ impl IrcBot {
         if !self.allchains.contains_key(channel) {
             debug!("building allchain for {}", channel);
             let mut allchain = Chain::new(self.order);
-            for (_, ref chain) in self.chains.get(channel).unwrap() {
-                allchain.merge(chain);
+            if self.chains.get(channel).is_none() {
+                self.chains.insert(channel.to_string(), HashMap::new());
+            }
+            else {
+                for (_, ref chain) in self.chains.get(channel).unwrap() {
+                    allchain.merge(chain);
+                }
             }
             self.allchains.insert(channel.to_string(), allchain);
         }
