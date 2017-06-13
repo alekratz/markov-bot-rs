@@ -1,0 +1,193 @@
+use markov_chain::Chain;
+use irc::client::prelude::*;
+use cbor;
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::{self, Write, Read};
+
+type UserSettingsMap = HashMap<String, HashMap<String, UserSettings>>;
+type ChainMap = HashMap<String, HashMap<String, Chain<String>>>;
+
+const DEFAULT_CHANCE: f64 = 0.01;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct UserSettings {
+    pub ignore: bool,
+    pub chance: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct BlobFile {
+    chains: ChainMap,
+    user_settings: UserSettingsMap,
+}
+
+pub struct IrcBot {
+    chains: ChainMap,
+    allchains: HashMap<String, Chain<String>>,
+    user_settings: UserSettingsMap,
+    ignore: Vec<String>,
+    server: IrcServer,
+}
+
+impl IrcBot {
+    pub fn new(server: IrcServer, options: HashMap<String, String>) -> Self {
+        IrcBot {
+            chains: HashMap::new(),
+            allchains: HashMap::new(),
+            user_settings: HashMap::new(),
+            ignore: options.get("ignore")
+                .map(|x| x.split(',').map(str::to_string).collect())
+                .unwrap_or(vec![]),
+            server,
+        }
+    }
+
+    pub fn from_blob_file(server: IrcServer, options: HashMap<String, String>, blob: BlobFile) -> Self {
+        IrcBot {
+            chains: blob.chains,
+            allchains: HashMap::new(),
+            user_settings: blob.user_settings,
+            ignore: options.get("ignore")
+                .map(|x| x.split(',').map(str::to_string).collect())
+                .unwrap_or(vec![]),
+            server,
+        }
+    }
+
+    pub fn handle(&mut self, msg: Message) {
+        match msg.command {
+            Command::PRIVMSG(ref channel, ref msg_str) => if let Some(prefix) = msg.prefix {
+                self.channel_message(&prefix.split('!').nth(0).unwrap(), channel, msg_str);
+            },
+            _ => trace!("not handled: {}", msg),
+        }
+    }
+
+    fn channel_message(&mut self, sender: &str, channel: &str, msg: &str) {
+        // ignore messages from ourself
+        if sender == self.server.current_nickname() {
+            return;
+        }
+
+        let msg_parts = msg.split_whitespace()
+            .collect::<Vec<_>>();
+        // handle markov command
+        if msg_parts.len() > 1 && msg_parts[0] == "!markov" {
+            self.handle_command(sender, channel, &msg_parts);
+        }
+        else if !self.is_ignored(channel, sender) {
+            // Train the user's chain
+            {
+                let chain = self.user_chain_mut(channel, sender);
+                chain.train_string(msg);
+            }
+            // Train the allchain
+            if !self.allchains.contains_key(channel) {
+                debug!("building allchain for {}", channel);
+                let mut allchain = Chain::new(1);
+                for (_, ref chain) in self.chains.get(channel).unwrap() {
+                    allchain.merge(chain);
+                }
+                self.allchains.insert(channel.to_string(), allchain);
+            }
+            let allchain = self.allchains.get_mut(channel).unwrap();
+            allchain.train_string(msg);
+        }
+
+    }
+
+    fn user_chain_mut(&mut self, channel: &str, user: &str) -> &mut Chain<String> {
+        if !self.chains.contains_key(channel) {
+            self.chains.insert(channel.to_string(), HashMap::new());
+        }
+        let channel = self.chains.get_mut(channel).unwrap();
+
+        if !channel.contains_key(user) {
+            channel.insert(user.to_string(), Chain::new(1));
+        }
+        channel.get_mut(user).unwrap()
+    }
+
+    fn is_ignored(&self, channel: &str, user: &str) -> bool {
+        self.ignore.iter().map(String::as_str).find(|&f| f == user).is_some()
+            || self.user_settings.get(channel)
+                .map(|c| c.get(user).map(|u| u.ignore).unwrap_or(false))
+                .unwrap_or(false)
+    }
+
+    fn handle_command(&mut self, sender: &str, channel: &str, parts: &[&str]) {
+        assert_eq!(parts[0], "!markov");
+        assert!(parts.len() > 1);
+
+        match parts[1] {
+            "force" => {
+                let chain = self.chains
+                    .entry(channel.to_string()).or_insert(HashMap::new())
+                    .entry(sender.to_string()).or_insert(Chain::new(1));
+                if !chain.is_empty() {
+                    let gen = chain.generate_sentence();
+                    let message = format!("{}: {}", sender, gen);
+                    if let Err(e) = self.server.send_privmsg(channel, &message) {
+                        error!("{}", e);
+                    }
+                }
+            },
+            "all" => if let Some(chain) = self.allchains.get(channel) {
+                if !chain.is_empty() {
+                    let gen = chain.generate_sentence();
+                    let message = format!("{}: {}", sender, gen);
+                    if let Err(e) = self.server.send_privmsg(channel, &message) {
+                        error!("{}", e);
+                    }
+                }
+            },
+            "ignore" => if !self.is_ignored(channel, sender) {
+                self.user_settings
+                    .entry(channel.to_string()).or_insert(HashMap::new())
+                    .entry(sender.to_string()).or_insert(UserSettings { ignore: true, chance: DEFAULT_CHANCE });
+                self.ignore.push(sender.to_string());
+                if let Err(e) = self.server.send_privmsg(sender, "You are now being ignored. Use !markov listen to undo this command") {
+                    error!("{}", e);
+                }
+            },
+            "listen" => if self.is_ignored(channel, sender) {
+                self.user_settings
+                    .entry(channel.to_string()).or_insert(HashMap::new())
+                    .entry(sender.to_string()).or_insert(UserSettings { ignore: false, chance: DEFAULT_CHANCE });
+                if let Err(e) = self.server.send_privmsg(sender, "Markov is now listening to what you say. Use !markov ignore to undo this command.") {
+                    error!("{}", e);
+                }
+            },
+            _ => { },
+        }
+    }
+
+    /// Saves a blob of the chains and user settings
+    pub fn save_blob(&mut self, path: &str) -> io::Result<()> {
+        info!("saving chains");
+        let save_data = BlobFile {
+            chains: self.chains.clone(),
+            user_settings: self.user_settings.clone(),
+        };
+        let cbor_out = cbor::to_vec(&save_data).unwrap();
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)?;
+        file.write_all(&cbor_out)
+    }
+
+    pub fn read_blob(path: &str) -> io::Result<BlobFile> {
+        debug!("reading from {}", path);
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(path)?;
+        let mut cbor_in = Vec::new();
+        file.read_to_end(&mut cbor_in)?;
+
+        let read_data = cbor::from_slice::<BlobFile>(&cbor_in)
+            .expect(&format!("invalid cbor data in {}", path));
+        Ok(read_data)
+    }
+}

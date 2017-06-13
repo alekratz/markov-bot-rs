@@ -1,0 +1,24 @@
+{
+	"owners": ["intercal"],
+	"nickname": "markovbot",
+	"nick_password": "",
+	"alt_nicks": ["markovbot_", "markovbot__"],
+	"username": "markovbot",
+	"realname": "markovbot",
+	"server": "irc.bonerjamz.us",
+	"port": 6667,
+	"password": "",
+	"use_ssl": false,
+	"encoding": "UTF-8",
+	"channels": ["#idleville"],
+	"channel_keys": {
+	},
+	"umodes": "+RB-x",
+	"user_info": "",
+	"version": "irc:git:Rust",
+	"source": "",
+	"ping_time": 180,
+	"ping_timeout": 10,
+	"options": {
+	}
+}

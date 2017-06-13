@@ -1,0 +1,21 @@
+[package]
+name = "markov-bot"
+version = "0.1.0"
+authors = ["Alek Ratzloff <alekratz@gmail.com>"]
+description = "Markov chain IRC bot"
+
+[dependencies]
+markov-chain = { git = "https://git.intercal.top/intercal/markov-chain-rs.git" }
+log = "0.3"
+env_logger = "0.3"
+ansi_term = "0.9"
+serde = "1.0"
+serde_derive = "1.0"
+serde_cbor = "0.6"
+ctrlc = "3.0"
+
+[dependencies.irc]
+version = "0.11.0"
+default-features = false
+features = ["ctcp", "encode"]
+
