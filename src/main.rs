@@ -68,6 +68,10 @@ fn run(config: Config) {
         .as_ref()
         .map(|x| x.clone())
         .unwrap_or(HashMap::new());
+    let save_interval = options
+        .get("save_interval")
+        .map(|s| s.parse::<usize>().unwrap())
+        .unwrap_or(3600);
     let chain_file = format!("{}.cbor", options.get("chain_file")
         .map(String::clone)
         .unwrap_or(config.server.clone().unwrap()));
@@ -117,7 +121,6 @@ fn run(config: Config) {
         let running = running.clone();
         save_thread = thread::spawn(move || {
             // save every hour
-            let save_interval = 3600;
             let bot = bot.clone();
             let ref chain_file = chain_file;
             debug!("starting save thread");
