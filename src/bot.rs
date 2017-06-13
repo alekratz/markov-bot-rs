@@ -17,7 +17,7 @@ struct UserSettings {
     pub chance: f64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlobFile {
     chains: ChainMap,
     user_settings: UserSettingsMap,
@@ -272,6 +272,7 @@ impl IrcBot {
                 assert_eq!(u_chain.order(), read_data.order);
             }
         }
+        trace!("Read data: {:?}", &read_data);
         Ok(read_data)
     }
 }

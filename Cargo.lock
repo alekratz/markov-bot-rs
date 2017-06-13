@@ -157,7 +157,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "markov-chain"
 version = "0.1.1"
-source = "git+https://git.intercal.top/intercal/markov-chain-rs.git#7f18e677f5205d445f91a15d49d71f062bde9019"
+source = "git+https://git.intercal.top/intercal/markov-chain-rs.git#b576d6fbb3a4573cef11b911899bff3f177f5dc5"
 dependencies = [
  "lazy_static 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "maplit 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
