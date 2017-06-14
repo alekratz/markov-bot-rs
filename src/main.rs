@@ -10,6 +10,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_cbor as cbor;
 extern crate rand;
+extern crate chrono;
 
 mod bot;
 
@@ -19,6 +20,7 @@ use env_logger::LogBuilder;
 use log::{LogRecord, LogLevelFilter, LogLevel};
 use ansi_term::{Style, Colour};
 use irc::client::prelude::*;
+use chrono::Local;
 
 use std::time::Duration;
 use std::thread;
@@ -40,7 +42,8 @@ fn init_logger() {
             LogLevel::Debug => Style::new().fg(Colour::Blue),
             _ => Colour::White.dimmed(),
         };
-        format!("{}", color.paint(format!("[{level:07}] [{location}] {msg}",
+        let now = Local::now();
+        format!("{}", color.paint(format!("{time} {level} [{location}] {msg}", time=now.format("%Y-%m-%d %H:%M:%S"),
                                           location=record.location().module_path(), level=record.level(),
                                           msg=record.args())))
     };
