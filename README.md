@@ -9,7 +9,8 @@ I haven't tested this on Windows, but if you can build Rust on Windows, you can 
 
     `git clone https://github.com/alekratz/markov-bot-rs.git`
 
-2. Copy the example config over and fill it out for your needs.
+2. Copy the example config over and fill it out for your needs. The only fields you typically need to worry about are
+   the `server` and `nickname` fields.
 
     `cp markov-bot{.example,}.json`
 
