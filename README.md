@@ -33,3 +33,6 @@ I haven't tested this on Windows, but if you can build Rust on Windows, you can 
     OR
 
     `target/release/markov-bot-rs`
+
+# License
+ISC. See LICENSE for details.
