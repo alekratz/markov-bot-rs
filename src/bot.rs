@@ -217,15 +217,23 @@ impl IrcBot {
                             return;
                         }
                     };
-                    let chain = self
-                        .chains
-                        .entry(chan.to_string())
-                        .or_insert(HashMap::new())
-                        .entry(user.to_string())
-                        .or_insert(Chain::new(self.order));
-                    if !chain.is_empty() {
-                        let gen = chain.generate_sentence();
-                        let message = format!("{}: {}", sender, gen);
+                    if let Some(chan_chain) = self.chains.get(chan.to_string()) {
+                        if let Some(user_chain) = chan_chain.get(user.to_string()) {
+                            if !chain.is_empty() {
+                                let gen = chain.generate_sentence();
+                                let message = format!("{}: {}", sender, gen);
+                                if let Err(e) = self.server.send_privmsg(channel, &message) {
+                                    error!("{}", e);
+                                }
+                            }
+                        } else {
+                            let message = format!("{}: No chain for user {}", sender, user);
+                            if let Err(e) = self.server.send_privmsg(channel, &message) {
+                                error!("{}", e);
+                            }
+                        }
+                    } else {
+                        let message = format!("{}: No chain for channel {}", sender, chan);
                         if let Err(e) = self.server.send_privmsg(channel, &message) {
                             error!("{}", e);
                         }
