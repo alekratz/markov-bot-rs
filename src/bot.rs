@@ -199,7 +199,7 @@ impl IrcBot {
                 if parts.len() < 3 {
                     if let Err(e) = self
                         .server
-                        .send_privmsg(channel, "Usage: !markov emulate <user> <channel>")
+                        .send_privmsg(channel, "Usage: !markov emulate <user> [<channel>]")
                     {
                         error!("{}", e);
                     }
@@ -210,7 +210,7 @@ impl IrcBot {
                         (_, _) => {
                             if let Err(e) = self
                                 .server
-                                .send_privmsg(channel, "Usage: !markov emulate <user>[@<channel>]")
+                                .send_privmsg(channel, "Usage: !markov emulate <user> [<channel>]")
                             {
                                 error!("{}", e);
                             };
