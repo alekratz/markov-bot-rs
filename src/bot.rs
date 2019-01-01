@@ -217,10 +217,10 @@ impl IrcBot {
                             return;
                         }
                     };
-                    if let Some(chan_chain) = self.chains.get(chan.to_string()) {
-                        if let Some(user_chain) = chan_chain.get(user.to_string()) {
-                            if !chain.is_empty() {
-                                let gen = chain.generate_sentence();
+                    if let Some(chan_chain) = self.chains.get(&chan.to_string()) {
+                        if let Some(user_chain) = chan_chain.get(&user.to_string()) {
+                            if !user_chain.is_empty() {
+                                let gen = user_chain.generate_sentence();
                                 let message = format!("{}: {}", sender, gen);
                                 if let Err(e) = self.server.send_privmsg(channel, &message) {
                                     error!("{}", e);
