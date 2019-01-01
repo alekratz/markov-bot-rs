@@ -5,7 +5,7 @@ authors = ["Alek Ratzloff <alekratz@gmail.com>"]
 description = "Markov chain IRC bot"
 
 [dependencies]
-markov-chain = { git = "https://git.intercal.top/intercal/markov-chain-rs.git" }
+markov-chain = { git = "https://github.com/alekratz/markov-chain-rs.git" }
 log = "0.3"
 env_logger = "0.3"
 ansi_term = "0.9"
